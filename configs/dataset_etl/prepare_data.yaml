@@ -1,0 +1,48 @@
+experiment:
+  name: prepare_v1
+  type: k_epsilon
+  seed: 42
+
+paths:
+  root: .
+  data_process_dir: data/data_processed
+  data_cfd_dir: data/data_cfd
+  results_dir: results
+  models_dir: results/models
+  metrics_dir: results/metrics
+  plots_dir: results/plots
+  logs_dir: logs
+
+cfd_data:
+  input_format: auto       # auto, raw ou csv
+  path_coarse: cfd_rans_k_epsilon/Re_32000/coarse
+  path_fine: cfd_rans_k_epsilon/Re_32000/fine
+  dataset: grid_pinn_div(U)_epsilon_k_nut_p_U.xy
+  dataset_csv: grid_pinn_div(U)_epsilon_k_nut_p_U.csv
+  csv_separator: ","
+  Re: 32000
+  out_name: dataset_bfs_2d_kepsilon_Re32000_full.parquet
+
+features:
+  - x
+  - y
+  - Ux
+  - Uy
+  - p
+  - epsilon
+  - k
+  - nut_log
+  - wz_log
+  - sxy_log
+  - div_u_log
+  - Re
+  - Re_norm
+  - depsilon
+  - dk
+  - dnut
+  - dwz
+
+targets:
+  - dUx
+  - dUy
+  - dp
