@@ -1,12 +1,12 @@
 experiment:
   name: prepare_v1
-  type: k_epsilon
+  type: k_sst
   seed: 42
 
 paths:
   root: .
   data_process_dir: data/data_processed
-  data_cfd_dir: data/data_cfd
+  data_cfd_dir: data/cfd
   results_dir: results
   models_dir: results/models
   metrics_dir: results/metrics
@@ -14,14 +14,14 @@ paths:
   logs_dir: logs
 
 cfd_data:
-  input_format: auto       # auto, raw ou csv
-  path_coarse: cfd_rans_k_epsilon/Re_32000/coarse
-  path_fine: cfd_rans_k_epsilon/Re_32000/fine
-  dataset: grid_pinn_div(U)_epsilon_k_nut_p_U.xy
-  dataset_csv: grid_pinn_div(U)_epsilon_k_nut_p_U.csv
+  input_format: csv       # auto, raw ou csv
+  path_coarse: cfd_rans_sst/Re_5100/coarse/
+  path_fine: cfd_rans_sst/Re_5100/fine/
+  dataset: grid_pinn_k_nut_omega_p_U.xy
+  dataset_csv: grid_pinn_k_nut_omega_p_U.csv
   csv_separator: ","
-  Re: 32000
-  out_name: dataset_bfs_2d_kepsilon_Re32000_full.parquet
+  Re: 5100
+  out_name: dataset_bfs_2d_sst_Re5100_full.parquet
 
 features:
   - x
@@ -29,7 +29,7 @@ features:
   - Ux
   - Uy
   - p
-  - epsilon
+  - omega
   - k
   - nut_log
   - wz_log
@@ -37,10 +37,6 @@ features:
   - div_u_log
   - Re
   - Re_norm
-  - depsilon
-  - dk
-  - dnut
-  - dwz
 
 targets:
   - dUx

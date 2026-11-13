@@ -1,14 +1,15 @@
-import argparse
 from pathlib import Path
 from datetime import datetime
 import joblib
 import matplotlib
 matplotlib.use("Agg")
+import pandas as pd
 import torch
 import torch.nn as nn
 import yaml
 
 from logger import ExperimentLogger
+from inference import predict_fields
 from metrics import evaluate_metrics
 from plots import (
     plot_error_compare,
@@ -51,6 +52,7 @@ def run_metrics_pipeline(
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_type = cfg["model"]["type"]
+    feat_cols = cfg["features"]
     exp_name = cfg["experiment"]["name"]
     width = cfg["model"]["width"]
     depth = cfg["model"]["depth"]
@@ -100,17 +102,22 @@ def run_metrics_pipeline(
     yscaler = joblib.load(yscaler_path)
     model = build_model(cfg, model_path).to("cuda" if torch.cuda.is_available() else "cpu")
 
-    metrics, pred_df = evaluate_metrics(
+    df_test = pd.read_parquet(dataset_path)
+
+    pred_test = predict_fields(
         model=model,
-        parquet_test_path=dataset_path,
-        feat_cols=cfg["features"],
+        df=df_test,
+        feat_cols=feat_cols,
         xscaler=xscaler,
         yscaler=yscaler,
         batch_size=batch_size,
+    )
+
+    accuracy_metrics = evaluate_metrics(
+        pred_df=pred_test,
         model_metrics=exp_name,
         out_metrics=metrics_path,
         out_predictions=predictions_path,
-        return_predictions=True,
     )
 
     plot_specs = [
@@ -121,7 +128,7 @@ def run_metrics_pipeline(
 
     for field_c, field_f, field_corr, label in plot_specs:
         plot_field_compare(
-            pred_df,
+            pred_test,
             field_c,
             field_f,
             field_corr,
@@ -130,7 +137,7 @@ def run_metrics_pipeline(
         )
 
         plot_error_compare(
-            pred_df,
+            pred_test,
             field_c,
             field_f,
             field_corr,
@@ -139,7 +146,7 @@ def run_metrics_pipeline(
         )
 
         plot_error_histogram(
-            pred_df,
+            pred_test,
             field_c,
             field_f,
             field_corr,
@@ -152,38 +159,9 @@ def run_metrics_pipeline(
     logger.log_message(f"Plots: {plots_dir}")
 
     return {
-        "metrics": metrics,
+        "metrics": accuracy_metrics,
         "metrics_path": str(metrics_path),
         "predictions_path": str(predictions_path),
         "plots_dir": str(plots_dir),
     }
 
-# Função principal para rodar standalone
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--model-path", default=None)
-    parser.add_argument("--dataset-path", default=None)
-    parser.add_argument("--xscaler-path", default=None)
-    parser.add_argument("--yscaler-path", default=None)
-    parser.add_argument("--metrics-path", default=None)
-    parser.add_argument("--predictions-path", default=None)
-    parser.add_argument("--plots-dir", default=None)
-    args = parser.parse_args()
-
-    cfg = load_config(args.config)
-    result = run_metrics_pipeline(
-        cfg=cfg,
-        model_path=args.model_path,
-        dataset_path=args.dataset_path,
-        xscaler_path=args.xscaler_path,
-        yscaler_path=args.yscaler_path,
-        metrics_path=args.metrics_path,
-        predictions_path=args.predictions_path,
-        plots_dir=args.plots_dir,
-    )
-    print(result)
-
-
-if __name__ == "__main__":
-    main()

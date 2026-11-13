@@ -1,12 +1,12 @@
 experiment:
   name: cont_mom_base
-  type: k_epsilon
+  type: k_sst
   seed: 42
 
 paths:
   root: .
   data_process_dir: data/data_processed
-  data_cfd_dir: data/data_cfd
+  data_cfd_dir: data/cfd
   results_dir: results
   models_dir: results/models
   metrics_dir: results/metrics
@@ -14,7 +14,7 @@ paths:
   logs_dir: logs
 
 dataset:
-  parquet: dataset_bfs_2d_kepsilon_Re20000_28000_36000_full.parquet
+  parquet: dataset_bfs_2d_sst_Re5100_full.parquet
   test_output: dataset_test_pinn
 
 features:
@@ -25,10 +25,6 @@ features:
   - p
   - Re
   - nut_log
-  - du_dx_log
-  - du_dy_log
-  - dv_dx_log
-  - dv_dy_log
 
 targets:
   - dUx
