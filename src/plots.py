@@ -21,7 +21,7 @@ def plot_field_compare(
     field_f,
     field_corr,
     title,
-    h=0.0127,
+    h=1.0,
     cmap="viridis",
     save_path=None,
     show=False,
@@ -67,9 +67,9 @@ def plot_field_compare(
         ax.set_xlabel(r"$x/h$")
         ax.set_ylabel(r"$y/h$")
 
-        # Domínio do Driver & Seegmiller
-        ax.set_xlim([-130, 50])
-        ax.set_ylim([0, 9])
+        # Domínio do Le et al.
+        ax.set_xlim([-3, 19])
+        ax.set_ylim([0, 6])
 
         # Não preservar a razão física extrema
         ax.set_aspect("auto")
@@ -87,7 +87,7 @@ def plot_error_compare(
     field_f,
     field_corr,
     label,
-    h=0.0127,
+    h=1.0,
     save_path=None,
     show=False,
     close=True,
@@ -128,8 +128,8 @@ def plot_error_compare(
         ax.set_title(title)
         ax.set_xlabel(r"$x/h$")
         ax.set_ylabel(r"$y/h$")
-        ax.set_xlim([-130, 50])
-        ax.set_ylim([0, 9])
+        ax.set_xlim([-3, 19])
+        ax.set_ylim([0, 6])
         ax.set_aspect("auto")
 
     fig.colorbar(sc, ax=axes, label=f"Erro {label}")
@@ -147,7 +147,7 @@ def plot_local_gain(
     field_f,
     field_corr,
     label,
-    h=0.0127,
+    h=1.0,
     save_path=None,
     show=False,
     close=True,
@@ -177,8 +177,9 @@ def plot_local_gain(
     ax.set_title(f"Ganho local — {label}")
     ax.set_xlabel(r"$x/h$")
     ax.set_ylabel(r"$y/h$")
-    ax.set_xlim([-130, 50])
-    ax.set_ylim([0, 9])
+    # Domínio do Le et al.
+    ax.set_xlim([-3, 19])
+    ax.set_ylim([0, 6])
     ax.set_aspect("auto")
 
     cbar = fig.colorbar(sc, ax=ax)
@@ -310,7 +311,7 @@ def plot_divergence_compare(
     field_fine="div_u_f",
     field_corrected="div_corrected",
     model_name="Modelo",
-    h=0.0127,
+    h=1.0,
     percentile=99.0,
     absolute=True,
     vmax_fixed=None,
@@ -432,8 +433,9 @@ def plot_divergence_compare(
         ax.set_title(title)
         ax.set_xlabel(r"$x/H$")
         ax.set_ylabel(r"$y/H$")
-        ax.set_xlim([-130, 50])
-        ax.set_ylim([0, 9])
+        # Domínio do Le et al.
+        ax.set_xlim([-3, 19])
+        ax.set_ylim([0, 6])
         ax.set_aspect("auto")
 
     fig.colorbar(
@@ -463,7 +465,7 @@ def plot_divergence_mlp_pinn_compare(
     pinn_field="div_corrected",
     coarse_field="div_u",
     fine_field="div_u_f",
-    h=0.0127,
+    h=1.0,
     percentile=99.0,
     absolute=True,
     vmax_fixed=None,
@@ -620,8 +622,9 @@ def plot_divergence_mlp_pinn_compare(
         ax.set_title(subtitle)
         ax.set_xlabel(r"$x/H$")
         ax.set_ylabel(r"$y/H$")
-        ax.set_xlim([-130, 50])
-        ax.set_ylim([0, 9])
+        # Domínio do Le et al.
+        ax.set_xlim([-3, 19])
+        ax.set_ylim([0, 6])
         ax.set_aspect("auto")
 
     fig.colorbar(
@@ -647,7 +650,7 @@ def plot_divergence_error(
     corrected_field="div_corrected",
     fine_field="div_u_f",
     model_name="Modelo",
-    h=0.0127,
+    h=1.0,
     percentile=99.0,
     save_path=None,
     show=False,
@@ -711,8 +714,9 @@ def plot_divergence_error(
     )
     ax.set_xlabel(r"$x/H$")
     ax.set_ylabel(r"$y/H$")
-    ax.set_xlim([-130, 50])
-    ax.set_ylim([0, 9])
+    # Domínio do Le et al.
+    ax.set_xlim([-3, 19])
+    ax.set_ylim([0, 6])
     ax.set_aspect("auto")
 
     fig.colorbar(
@@ -734,7 +738,7 @@ def plot_divergence_error_mlp_pinn(
     mlp_field="div_corrected",
     pinn_field="div_corrected",
     fine_field="div_u_f",
-    h=0.0127,
+    h=1.0,
     percentile=99.0,
     vmax_fixed=None,
     save_path=None,
@@ -863,8 +867,9 @@ def plot_divergence_error_mlp_pinn(
         ax.set_title(title)
         ax.set_xlabel(r"$x/H$")
         ax.set_ylabel(r"$y/H$")
-        ax.set_xlim([-130, 50])
-        ax.set_ylim([0, 9])
+        # Domínio do Le et al.
+        ax.set_xlim([-3, 19])
+        ax.set_ylim([0, 6])
         ax.set_aspect("auto")
 
     fig.colorbar(

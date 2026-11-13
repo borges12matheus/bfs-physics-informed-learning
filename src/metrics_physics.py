@@ -212,61 +212,125 @@ def print_divergence_metrics(
     print("=" * 64)
 
 
-def evaluate_exported_divergence_metrics(
+def evaluate_physics_metrics(
     pred_df: pd.DataFrame,
+    n_neighbors: int = 12,
     model_name: str | None = None,
     print_results: bool = True,
-):
-    required_columns = {
-        "div_u",
-        "div_u_f",
-        "div_delta_pred",
-        "div_corrected",
+) -> tuple[dict, pd.DataFrame]:
+    """
+    Avalia a divergência dos campos coarse, fine e corrigido
+    utilizando mínimos quadrados locais.
+
+    Todos os campos são avaliados com o mesmo operador.
+    """
+
+    required_cols = {
+        "x", "y",
+        "Ux", "Uy",
+        "Ux_f", "Uy_f",
+        "Ux_corr", "Uy_corr",
+        "dUx_pred", "dUy_pred",
     }
 
-    missing = required_columns - set(pred_df.columns)
+    missing = required_cols - set(pred_df.columns)
 
     if missing:
         raise ValueError(
-            f"Colunas físicas ausentes: {sorted(missing)}"
+            f"Colunas ausentes: {sorted(missing)}"
         )
 
     result_df = pred_df.copy()
 
-    div_coarse = result_df["div_u"].to_numpy(np.float64)
-    div_fine = result_df["div_u_f"].to_numpy(np.float64)
-    div_delta = result_df["div_delta_pred"].to_numpy(np.float64)
-    div_corrected = result_df["div_corrected"].to_numpy(np.float64)
+    x = result_df["x"].to_numpy(np.float64)
+    y = result_df["y"].to_numpy(np.float64)
 
-    div_error_vs_fine = div_corrected - div_fine
+    def divergence(ux_col, uy_col):
+        return calculate_divergence(
+            x=x,
+            y=y,
+            ux=result_df[ux_col].to_numpy(np.float64),
+            uy=result_df[uy_col].to_numpy(np.float64),
+            n_neighbors=n_neighbors,
+        )
+
+    # Divergência dos campos CFD
+    result_df["div_u"] = divergence("Ux", "Uy")
+    result_df["div_u_f"] = divergence("Ux_f", "Uy_f")
+
+    # Divergência da correção prevista
+    result_df["div_delta_pred"] = divergence(
+        "dUx_pred", "dUy_pred"
+    )
+
+    # Divergência do campo corrigido
+    result_df["div_corrected"] = divergence(
+        "Ux_corr", "Uy_corr"
+    )
+
+    # Diferença em relação ao CFD fine
+    result_df["div_error_vs_fine"] = (
+        result_df["div_corrected"]
+        - result_df["div_u_f"]
+    )
+
+    # Máscara comum para comparação justa
+    valid = np.isfinite(
+        result_df[
+            [
+                "div_u",
+                "div_u_f",
+                "div_delta_pred",
+                "div_corrected",
+            ]
+        ].to_numpy()
+    ).all(axis=1)
+
+    if not valid.any():
+        raise ValueError(
+            "Nenhum ponto possui divergência válida "
+            "em todos os campos."
+        )
+
+    div_coarse = result_df.loc[valid, "div_u"].to_numpy()
+    div_fine = result_df.loc[valid, "div_u_f"].to_numpy()
+    div_delta = result_df.loc[valid, "div_delta_pred"].to_numpy()
+    div_corr = result_df.loc[valid, "div_corrected"].to_numpy()
+
+    div_error = div_corr - div_fine
 
     coarse_metrics = summarize_divergence(div_coarse)
     fine_metrics = summarize_divergence(div_fine)
     delta_metrics = summarize_divergence(div_delta)
-    corrected_metrics = summarize_divergence(div_corrected)
-    error_metrics = summarize_divergence(div_error_vs_fine)
+    corrected_metrics = summarize_divergence(div_corr)
+    error_metrics = summarize_divergence(div_error)
 
-    rer_rmse_vs_coarse = _relative_reduction(
+    rer_rmse_coarse = _relative_reduction(
         coarse_metrics["rmse"],
         corrected_metrics["rmse"],
     )
 
-    rer_mae_vs_coarse = _relative_reduction(
+    rer_mae_coarse = _relative_reduction(
         coarse_metrics["mae"],
         corrected_metrics["mae"],
     )
 
-    rer_rmse_vs_fine = _relative_reduction(
-    fine_metrics["rmse"],
-    corrected_metrics["rmse"],
-)
+    rer_rmse_fine = _relative_reduction(
+        fine_metrics["rmse"],
+        corrected_metrics["rmse"],
+    )
 
     metrics = {
         "divergence_source": {
-            "coarse": "openfoam",
-            "fine": "openfoam",
-            "delta": "autograd",
-            "corrected": "openfoam_coarse_plus_autograd_delta",
+            "coarse": "local_least_squares",
+            "fine": "local_least_squares",
+            "delta": "local_least_squares",
+            "corrected": "local_least_squares",
+        },
+
+        "divergence_method": {
+            "name": "local_least_squares",
+            "n_neighbors": n_neighbors,
         },
 
         "divergence_coarse": coarse_metrics,
@@ -275,25 +339,24 @@ def evaluate_exported_divergence_metrics(
         "divergence_corrected": corrected_metrics,
         "divergence_error_corrected_vs_fine": error_metrics,
 
-        "RER_divergence_rmse_vs_coarse": float(
-            rer_rmse_vs_coarse
-        ),
-        "RER_divergence_mae_vs_coarse": float(
-            rer_mae_vs_coarse
-        ),
-        "RER_divergence_rmse_vs_fine": float(
-            rer_rmse_vs_fine
+        "RER_divergence_rmse_vs_coarse": rer_rmse_coarse,
+        "RER_divergence_mae_vs_coarse": rer_mae_coarse,
+        "RER_divergence_rmse_vs_fine": rer_rmse_fine,
+
+        "improvement_divergence_rmse_pct": (
+            rer_rmse_coarse * 100.0
         ),
 
-        "improvement_divergence_rmse_pct": float(
-            rer_rmse_vs_coarse * 100.0
+        "improvement_divergence_mae_pct": (
+            rer_mae_coarse * 100.0
         ),
-        "improvement_divergence_mae_pct": float(
-            rer_mae_vs_coarse * 100.0
+
+        "improvement_vs_fine_rmse_pct": (
+            rer_rmse_fine * 100.0
         ),
-        "improvement_vs_fine_rmse_pct": float(
-            rer_rmse_vs_fine * 100.0
-        ),
+
+        "n_valid_common": int(valid.sum()),
+        "valid_fraction_common": float(valid.mean()),
     }
 
     if print_results:
