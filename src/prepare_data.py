@@ -64,10 +64,9 @@ RAW_COLUMNS = [
     "x",
     "y",
     "z",
-    "div_u",
-    "epsilon",
     "k",
     "nut",
+    "omega",
     "p",
     "Ux",
     "Uy",
@@ -105,6 +104,7 @@ COLUMN_ALIASES = {
     "K": "k",
     "Nut": "nut",
     "P": "p",
+    "Omega": "omega"
 }
 
 
@@ -162,7 +162,7 @@ def read_raw_grid_file(path: Path) -> pd.DataFrame:
 
     Formato esperado:
 
-        x y z div_u epsilon k nut p Ux Uy Uz
+        x y z div_u omega k nut p Ux Uy Uz
     """
     rows = []
 
@@ -261,8 +261,6 @@ def resolve_case_file(
             f"Diretório do caso não encontrado: {case_dir}"
         )
 
-    latest_time_dir = latest_dir(case_dir)
-
     input_format = input_format.lower().strip()
 
     if input_format not in {"raw", "csv", "auto"}:
@@ -275,13 +273,13 @@ def resolve_case_file(
 
     if input_format in {"raw", "auto"}:
         candidates.append(
-            (latest_time_dir / raw_filename, "raw")
+            (case_dir / raw_filename, "raw")
         )
 
     if input_format in {"csv", "auto"}:
         if csv_filename:
             candidates.append(
-                (latest_time_dir / csv_filename, "csv")
+                (case_dir / csv_filename, "csv")
             )
 
         # Também tenta trocar automaticamente a extensão
@@ -289,7 +287,7 @@ def resolve_case_file(
 
         candidates.append(
             (
-                latest_time_dir / raw_path.with_suffix(".csv").name,
+                case_dir / raw_path.with_suffix(".csv").name,
                 "csv",
             )
         )
@@ -320,7 +318,7 @@ def load_cfd_case(
     DataFrame com nomes de colunas padronizados.
     """
     case_path = Path(case_dir)
-
+    logger.info("Carregando caso CFD: %s", case_path)
     file_path, detected_format = resolve_case_file(
         case_dir=case_path,
         raw_filename=raw_filename,
@@ -353,7 +351,7 @@ def load_cfd_case(
     required_columns = {
         "x",
         "y",
-        "epsilon",
+        "omega",
         "k",
         "nut",
         "p",
@@ -376,20 +374,12 @@ def load_cfd_case(
     if "Uz" not in df.columns:
         df["Uz"] = 0.0
 
-    if "div_u" not in df.columns:
-        logger.warning(
-            "O arquivo %s não contém a divergência exportada pelo OpenFOAM.",
-            file_path,
-        )
-
-        df["div_u"] = np.nan
-
+    # Colunas numéricas
     numeric_columns = [
         "x",
         "y",
         "z",
-        "div_u",
-        "epsilon",
+        "omega",
         "k",
         "nut",
         "p",
@@ -413,7 +403,7 @@ def load_cfd_case(
             subset=[
                 "x",
                 "y",
-                "epsilon",
+                "omega",
                 "k",
                 "nut",
                 "p",
@@ -544,7 +534,7 @@ def add_velocity_gradients_from_grid(
         f"du_dy{suffix}": du_dy,
         f"dv_dx{suffix}": dv_dx,
         f"dv_dy{suffix}": dv_dy,
-        f"div_u_python{suffix}": divergence,
+        f"div_u{suffix}": divergence,
         f"wz{suffix}": wz,
         f"sxy{suffix}": sxy,
     }
@@ -594,21 +584,19 @@ df = dfc.merge(
         [
             "x",
             "y",
-            "div_u",
-            "epsilon",
             "k",
             "nut",
+            "omega",
             "p",
             "Ux",
             "Uy",
         ]
     ].rename(
         columns={
-            "div_u": "div_u_f",
             "p": "p_f",
             "Ux": "Ux_f",
             "Uy": "Uy_f",
-            "epsilon": "epsilon_f",
+            "omega": "omega_f",
             "k": "k_f",
             "nut": "nut_f",
         }
@@ -693,7 +681,7 @@ df["nut_log"] = np.log(df["nut"] + eps)
 df["nut_f_log"] = np.log(df["nut_f"] + eps)
 
 # Deltas físicos
-df["depsilon"] = df["epsilon_f"] - df["epsilon"]
+df["domega"] = df["omega_f"] - df["omega"]
 df["dk"] = df["k_f"] - df["k"]
 df["dnut"] = df["nut_f"] - df["nut"]
 df["dwz"] = df["wz_f"] - df["wz"]
@@ -728,7 +716,7 @@ out = df[[
     "Ux",
     "Uy",
     "p",
-    "epsilon",
+    "omega",
     "k",
     "nut_log",
 
@@ -753,7 +741,7 @@ out = df[[
     "Ux_f",
     "Uy_f",
     "p_f",
-    "epsilon_f",
+    "omega_f",
     "k_f",
     "nut_f_log",
 
@@ -766,7 +754,7 @@ out = df[[
     "dUx",
     "dUy",
     "dp",
-    "depsilon",
+    "domega",
     "dk",
     "dnut",
     "dwz",

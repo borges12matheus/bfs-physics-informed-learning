@@ -1,9 +1,9 @@
 # Inicializa as bibliotecas necessárias
 import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import torch
+from inference import predict_fields
 
 # ----------------------------
 # Métricas
@@ -33,105 +33,90 @@ def l2_relative_p(p_pred, p_ref):
 # -------------------------------
 # Função de Avaliação / Métricas
 # -------------------------------
-@torch.no_grad()
 def evaluate_metrics(
-    model, parquet_test_path, feat_cols, xscaler, yscaler,
-    batch_size=4900, model_metrics = None,
-    out_metrics=None,
-    out_predictions=None,
-    return_predictions=False
-):
+    pred_df: pd.DataFrame,
+    model_metrics: str | None = None,
+    out_metrics: str | Path | None = None,
+    out_predictions: str | Path | None = None,
+) -> dict:
+    """
+    Calcula métricas de acurácia utilizando um dataframe
+    que já contém as predições do modelo.
+    """
 
-    model.eval()
-    device = next(model.parameters()).device
+    required_cols = {
+        "Ux", "Uy", "p",
+        "Ux_f", "Uy_f", "p_f",
+        "dUx", "dUy", "dp",
+        "dUx_pred", "dUy_pred", "dp_pred",
+        "Ux_corr", "Uy_corr", "p_corr",
+    }
 
-    df = pd.read_parquet(parquet_test_path)
+    missing = required_cols - set(pred_df.columns)
 
-    # Definindo os campos de entrada (coarse) para avaliação
-    Ux_c = df["Ux"].to_numpy(np.float32)
-    Uy_c = df["Uy"].to_numpy(np.float32)
-    p_c  = df["p"].to_numpy(np.float32)
+    if missing:
+        raise ValueError(
+            f"Colunas ausentes: {sorted(missing)}"
+        )
 
-    dUx_true = df["dUx"].to_numpy(np.float32)
-    dUy_true = df["dUy"].to_numpy(np.float32)
-    dp_true  = df["dp"].to_numpy(np.float32)
+    # Campos coarse
+    ux_c = pred_df["Ux"].to_numpy(np.float64)
+    uy_c = pred_df["Uy"].to_numpy(np.float64)
+    p_c = pred_df["p"].to_numpy(np.float64)
 
-    # Definindo os campos de referência (fine) para comparação
-    Ux_f = Ux_c + dUx_true
-    Uy_f = Uy_c + dUy_true
-    p_f  = p_c  + dp_true
+    # Campos fine
+    ux_f = pred_df["Ux_f"].to_numpy(np.float64)
+    uy_f = pred_df["Uy_f"].to_numpy(np.float64)
+    p_f = pred_df["p_f"].to_numpy(np.float64)
 
-    # Normalizando os dados de entrada
-    X = df[feat_cols].to_numpy(np.float32)
-    x_mu, x_sd = xscaler
-    y_mu, y_sd = yscaler
-    Xn = (X - x_mu) / x_sd
+    # Campos corrigidos
+    ux_corr = pred_df["Ux_corr"].to_numpy(np.float64)
+    uy_corr = pred_df["Uy_corr"].to_numpy(np.float64)
+    p_corr = pred_df["p_corr"].to_numpy(np.float64)
 
-    # Realizando a predição em batches para evitar estouro de memória
-    dUx_pred = np.zeros(len(df), dtype=np.float32)
-    dUy_pred = np.zeros(len(df), dtype=np.float32)
-    dp_pred = np.zeros(len(df), dtype=np.float32)
-    
-    for i0 in range(0, len(df), batch_size):
-        i1 = min(i0 + batch_size, len(df))
-        xb = torch.tensor(Xn[i0:i1], dtype=torch.float32, device=device)
-        out_n = model(xb)[:, :3].detach().cpu().numpy() # saída normalizada do modelo
-        out = out_n * y_sd + y_mu # Desnormalizando a saída do modelo
-        dUx_pred[i0:i1] = out[:, 0]
-        dUy_pred[i0:i1] = out[:, 1]
-        dp_pred[i0:i1] = out[:, 2]
+    # Correções verdadeiras
+    dux_true = pred_df["dUx"].to_numpy(np.float64)
+    duy_true = pred_df["dUy"].to_numpy(np.float64)
+    dp_true = pred_df["dp"].to_numpy(np.float64)
 
-    # Calculando os campos corrigidos (predições finais)
-    Ux_hat = Ux_c + dUx_pred
-    Uy_hat = Uy_c + dUy_pred
-    p_hat = p_c + dp_pred
+    # Correções previstas
+    dux_pred = pred_df["dUx_pred"].to_numpy(np.float64)
+    duy_pred = pred_df["dUy_pred"].to_numpy(np.float64)
+    dp_pred = pred_df["dp_pred"].to_numpy(np.float64)
 
-    # Montando o dataset para plotagem comparativa dos perfis de velocidade e pressão
-    pred_df = df[["x", "y", "Ux", "Uy", "p", "dUx", "dUy", "dp"]].copy()
+    # MAE
+    mae_coarse = mae_vec(ux_c, uy_c, ux_f, uy_f)
+    mae_corr = mae_vec(ux_corr, uy_corr, ux_f, uy_f)
 
-    pred_df["Ux_f"] = pred_df["Ux"] + pred_df["dUx"]
-    pred_df["Uy_f"] = pred_df["Uy"] + pred_df["dUy"]
-    pred_df["p_f"]  = pred_df["p"]  + pred_df["dp"]
-
-    pred_df["dUx_pred"] = dUx_pred
-    pred_df["dUy_pred"] = dUy_pred
-    pred_df["dp_pred"]  = dp_pred
-
-    pred_df["Ux_corr"] = pred_df["Ux"] + pred_df["dUx_pred"]
-    pred_df["Uy_corr"] = pred_df["Uy"] + pred_df["dUy_pred"]
-    pred_df["p_corr"]  = pred_df["p"]  + pred_df["dp_pred"]
-
-    # Calculando as métricas de avaliação
-    # -------------------------------------------------
-    #MAE
-    mae_coarse = mae_vec(Ux_c, Uy_c, Ux_f, Uy_f)
     mae_p_coarse = mae_vec_pressure(p_c, p_f)
-    mae_corr   = mae_vec(Ux_hat, Uy_hat, Ux_f, Uy_f)
-    mae_p_corr = mae_vec_pressure(p_hat, p_f)
-    mae_deltas = mae_vec(dUx_pred, dUy_pred, dUx_true, dUy_true)
+    mae_p_corr = mae_vec_pressure(p_corr, p_f)
+
+    mae_deltas = mae_vec(
+        dux_pred, duy_pred, dux_true, duy_true
+    )
     mae_deltas_p = mae_vec_pressure(dp_pred, dp_true)
 
-    #RMSE
-    rmse_uv_coarse = rmse_uv(Ux_c, Uy_c, Ux_f, Uy_f)
-    rmse_uv_corr = rmse_uv(Ux_hat, Uy_hat, Ux_f, Uy_f)
+    # RMSE
+    rmse_uv_coarse = rmse_uv(ux_c, uy_c, ux_f, uy_f)
+    rmse_uv_corr = rmse_uv(ux_corr, uy_corr, ux_f, uy_f)
+
     rmse_p_coarse = rmse_p(p_c, p_f)
-    rmse_p_corr = rmse_p(p_hat, p_f)
+    rmse_p_corr = rmse_p(p_corr, p_f)
 
-    #RER
-    rer_uv = 1.0 - (mae_corr / (mae_coarse + 1e-12))
-    melhora_pct_uv = rer_uv * 100.0
-    rer_p = 1.0 - (mae_p_corr / (mae_p_coarse + 1e-12))
-    melhora_pct_p = rer_p * 100.0
+    # RER
+    rer_uv = 1.0 - mae_corr / (mae_coarse + 1e-12)
+    rer_p = 1.0 - mae_p_corr / (mae_p_coarse + 1e-12)
 
-    #L2
-    l2_coarse_uv = l2_relative_uv(Ux_c, Uy_c, Ux_f, Uy_f)
-    l2_corr_uv   = l2_relative_uv(Ux_hat, Uy_hat, Ux_f, Uy_f)
+    # L2 relativo
+    l2_coarse_uv = l2_relative_uv(
+        ux_c, uy_c, ux_f, uy_f
+    )
+    l2_corr_uv = l2_relative_uv(
+        ux_corr, uy_corr, ux_f, uy_f
+    )
+
     l2_coarse_p = l2_relative_p(p_c, p_f)
-    l2_corr_p   = l2_relative_p(p_hat, p_f)
-
-    # -------------------------------------------------
-    # Métricas de dados
-    # -------------------------------------------------
+    l2_corr_p = l2_relative_p(p_corr, p_f)
 
     metrics = {
         "mae_uv_coarse_to_fine": mae_coarse,
@@ -140,67 +125,45 @@ def evaluate_metrics(
         "mae_p_pressure_coarse_to_fine": mae_p_coarse,
         "mae_p_corrected_to_fine": mae_p_corr,
         "mae_p_deltas_pred_vs_true": mae_deltas_p,
+
         "rmse_uv_coarse_to_fine": rmse_uv_coarse,
         "rmse_uv_corrected_to_fine": rmse_uv_corr,
         "rmse_p_coarse_to_fine": rmse_p_coarse,
         "rmse_p_corrected_to_fine": rmse_p_corr,
+
         "l2_rel_uv_coarse": l2_coarse_uv,
         "l2_rel_uv_corrected": l2_corr_uv,
         "l2_rel_p_coarse": l2_coarse_p,
         "l2_rel_p_corrected": l2_corr_p,
+
         "RER (u,v)": float(rer_uv),
         "RER (p)": float(rer_p),
-        "melhora_MAE_pct": float(melhora_pct_uv),
-        "melhora_MAE_pct_pressure": float(melhora_pct_p),
-        "N": int(len(df)),
+
+        "melhora_MAE_pct": float(rer_uv * 100.0),
+        "melhora_MAE_pct_pressure": float(rer_p * 100.0),
+
+        "N": int(len(pred_df)),
     }
 
-    model_label = str(model_metrics or model.__class__.__name__)
+    label = model_metrics or "MODELO"
 
-    print("\n========================================================")
-    print(f"      RESULTADOS DO MODELO ({model_label.upper()})")
-    print("========================================================")
-
-    # ======================================================
-    # MÉTRICAS DE ACURÁCIA
-    # ======================================================
-
-    print("\n===== Métricas de Acurácia =====")
-    print(f"MAE vetorial (u,v) (coarse -> fine):      {mae_coarse:.6f}")
-    print(f"MAE pressão (p) (coarse -> fine):         {mae_p_coarse:.6f}")
-    print(f"MAE vetorial (u,v) (corrigido -> fine):   {mae_corr:.6f}")
-    print(f"MAE pressão (p) (corrigido -> fine):      {mae_p_corr:.6f}")
-    print(f"MAE vetorial (ΔU_pred -> ΔU_true):        {mae_deltas:.6f}")
-    print(f"MAE pressão (Δp_pred -> Δp_true):         {mae_deltas_p:.6f}")
-    print(f"RMSE (u,v) (coarse -> fine):              {rmse_uv_coarse:.6f}")
-    print(f"RMSE (u,v) (corrigido -> fine):           {rmse_uv_corr:.6f}")
-    print(f"RMSE (p)   (coarse -> fine):              {rmse_p_coarse:.6f}")
-    print(f"RMSE (p)   (corrigido -> fine):           {rmse_p_corr:.6f}")
-    print(f"RER (u,v):                                {rer_uv:.4f}")
-    print(f"RER (p):                                  {rer_p:.4f}")
-    print(f"Melhora (u,v) (MAE):                      {melhora_pct_uv:.2f}%")
-    print(f"Melhora (p) (MAE):                        {melhora_pct_p:.2f}%")
-
-    print(f"\n=====  Comparativo com CFD Fine ({model_label}) =====")
-    print(f"L2 relativo (u,v) - Coarse:               {l2_coarse_uv:.6e}")
-    print(f"L2 relativo (u,v) - Corrigido:            {l2_corr_uv:.6e}")
-    print(f"L2 relativo (p) - Coarse:                 {l2_coarse_p:.6e}")
-    print(f"L2 relativo (p) - Corrigido:              {l2_corr_p:.6e}")
-
+    print(f"\n===== MÉTRICAS DE ACURÁCIA ({label}) =====")
+    print(f"MAE coarse → fine:     {mae_coarse:.6e}")
+    print(f"MAE corrigido → fine:  {mae_corr:.6e}")
+    print(f"RMSE coarse → fine:    {rmse_uv_coarse:.6e}")
+    print(f"RMSE corrigido → fine: {rmse_uv_corr:.6e}")
+    print(f"Melhoria MAE:          {rer_uv * 100:.2f}%")
 
     if out_metrics is not None:
         out_metrics = Path(out_metrics)
         out_metrics.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_metrics, "w") as f:
+
+        with out_metrics.open("w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2)
-        print(f"Salvo: {out_metrics}\n")
 
     if out_predictions is not None:
         out_predictions = Path(out_predictions)
         out_predictions.parent.mkdir(parents=True, exist_ok=True)
         pred_df.to_parquet(out_predictions, index=False)
-        print(f"Predições salvas em: {out_predictions}\n")
 
-    if return_predictions:
-        return metrics, pred_df
     return metrics
